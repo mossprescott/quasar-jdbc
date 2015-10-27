@@ -14,16 +14,17 @@
  * limitations under the License.
  */
 
-package slamdata.jdbc
+package quasar.jdbc
 
+import scalaz._
 import argonaut._, Argonaut._
 
 import java.{sql => jdbc}
 
-class SlamDataDriver extends jdbc.Driver {
+class QuasarDriver extends jdbc.Driver {
   def acceptsURL(url: String): Boolean = ???
 
-  def connect(url: String, info: java.util.Properties): jdbc.Connection = new SlamDataConnection(new Client(url))
+  def connect(url: String, info: java.util.Properties): jdbc.Connection = new QuasarConnection(new Client(url))
 
   def getMajorVersion: Int = 0
   def getMinorVersion: Int = 1
@@ -35,35 +36,41 @@ class SlamDataDriver extends jdbc.Driver {
   def getParentLogger: java.util.logging.Logger = throw new jdbc.SQLFeatureNotSupportedException
 }
 
-class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
+class QuasarConnection(client: Client) extends jdbc.Connection { cxn =>
+  private def require[A](v: String \/ A): A = v.valueOr(err => throw new java.sql.SQLException(err))
+
   def getCatalog: String = "catalog"
 
   def getMetaData(): jdbc.DatabaseMetaData = new jdbc.DatabaseMetaData {
-    def empty = new SlamDataResultSet(Nil)
-    
+    val info = require(client.info)
+
+    def empty = new QuasarResultSet(Nil)
+
     // TODO: pull from build configuration
     def getDriverMajorVersion(): Int = 0
     def getDriverMinorVersion(): Int = 1
-    def getDriverName(): String = "SlamData SlamEngine JDBC"
+    def getDriverName(): String = "Quasar JDBC"
     def getDriverVersion(): String = "0.1-SNAPSHOT"
 
     // 4.1 is the version included with Java 1.7
     def getJDBCMajorVersion(): Int = 4
     def getJDBCMinorVersion(): Int = 1
-    
-
 
 
     def getConnection(): jdbc.Connection = cxn
     def getURL(): String = client.url
     def getUserName(): String = null
 
-    // TODO: expose this info in the API
-    def getDatabaseMajorVersion(): Int = 0
-    def getDatabaseMinorVersion(): Int = 7
-    def getDatabaseProductName(): String = "SlamData SlamEngine"
-    def getDatabaseProductVersion(): String = "0.7-SNAPSHOT"
 
+    // These are pulled from the API at /server/info:
+    def getDatabaseMajorVersion(): Int =
+      getDatabaseProductVersion.split("\\.")(0).toInt
+    def getDatabaseMinorVersion(): Int =
+      getDatabaseProductVersion.split("\\.")(1).toInt
+    def getDatabaseProductName(): String =
+      require(info.hcursor.get[String]("name").result.leftMap(_ => "product name not available"))
+    def getDatabaseProductVersion(): String =
+      require(info.hcursor.get[String]("version").result.leftMap(_ => "Quasar version not available"))
 
 
     // Syntax and nomenclature:
@@ -94,7 +101,7 @@ class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
     def generatedKeyAlwaysReturned(): Boolean = false
     def getAttributes(catalog: String, schemaPattern: String, typeNamePattern: String, attributeNamePattern: String): jdbc.ResultSet = ???
     def getBestRowIdentifier(catalog: String, schema: String, table: String, scope: Int, nullable: Boolean): jdbc.ResultSet = ???
-    def getCatalogs(): jdbc.ResultSet = new SlamDataResultSet(Json("path" := "/") :: Nil)
+    def getCatalogs(): jdbc.ResultSet = new QuasarResultSet(Json("path" := "/") :: Nil)
     def getClientInfoProperties(): jdbc.ResultSet = empty
     def getColumnPrivileges(catalog: String, schemaPattern: String, table: String, columnNamePattern: String): jdbc.ResultSet = empty
     def getColumns(catalog: String, schemaPattern: String, tableNamePattern: String, columnNamePattern: String): jdbc.ResultSet = empty
@@ -137,7 +144,7 @@ class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
     def getSuperTables(catalog: String, schemaPattern: String, tableNamePattern: String): jdbc.ResultSet = empty
     def getSuperTypes(catalog: String, schemaPattern: String, typeNamePattern: String): jdbc.ResultSet = empty
     def getTablePrivileges(catalog: String, schemaPattern: String, tableNamePattern: String): jdbc.ResultSet = empty
-    def getTableTypes(): jdbc.ResultSet = new SlamDataResultSet(Json("type" := "collection") :: Nil)
+    def getTableTypes(): jdbc.ResultSet = new QuasarResultSet(Json("type" := "collection") :: Nil)
     def getTables(catalog: String, schemaPattern: String, tableNamePattern: String, types: Array[String]): jdbc.ResultSet = empty  // TODO
     def getTypeInfo(): jdbc.ResultSet = empty
     def getUDTs(catalog: String, schemaPattern: String, typeNamePattern: String, types: Array[Int]): jdbc.ResultSet = empty
@@ -252,7 +259,7 @@ class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
 
   def getAutoCommit(): Boolean = true
 
-  def createStatement(): jdbc.Statement = new SlamDataStatement(client)
+  def createStatement(): jdbc.Statement = new QuasarStatement(client)
   
   def prepareStatement(x$1: String): jdbc.PreparedStatement = ???
 
@@ -309,7 +316,7 @@ class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
   def unwrap[T](x$1: Class[T]): T = ???
 
 
-  class SlamDataStatement(client: Client) extends jdbc.Statement {
+  class QuasarStatement(client: Client) extends jdbc.Statement {
     var maxRows: Option[Int] = None
     
     def getConnection(): jdbc.Connection = cxn
@@ -323,7 +330,7 @@ class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
     def executeQuery(sql: String): jdbc.ResultSet = {
       client.query(sql, maxRows=maxRows).fold(
         err => throw new jdbc.SQLException(err),
-        json => new SlamDataResultSet(json)
+        json => new QuasarResultSet(json)
       )
     }
   
@@ -383,8 +390,7 @@ class SlamDataConnection(client: Client) extends jdbc.Connection { cxn =>
   }
 }
 
-class SlamDataResultSet(result: List[Json]) extends jdbc.ResultSet {
-  // println("result: " + result)
+class QuasarResultSet(result: List[Json]) extends jdbc.ResultSet {
   val columns = (for {
     first <- result.headOption
     obj   <- first.obj
