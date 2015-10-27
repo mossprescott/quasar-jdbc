@@ -24,7 +24,7 @@ class DriverSpecs extends Specification {
     "connect to demo server" in {
       val driver = new QuasarDriver()
 
-      val cxn = driver.connect("slamengine://104.236.166.167:8080/demo/", null)
+      val cxn = driver.connect("quasar://104.236.166.167:8080/demo/", null)
 
       val metaData = cxn.getMetaData()
       metaData.getDatabaseMajorVersion must_== 2
@@ -40,7 +40,7 @@ class DriverSpecs extends Specification {
     "run simple query" in {
       val driver = new QuasarDriver()
 
-      val cxn = driver.connect("slamengine://104.236.166.167:8080/demo/", null)
+      val cxn = driver.connect("quasar://104.236.166.167:8080/demo/", null)
       try {
 
         val stmt = cxn.createStatement
