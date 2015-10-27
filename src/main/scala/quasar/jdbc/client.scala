@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package slamdata.jdbc
+package quasar.jdbc
 
 import scalaz._, Scalaz._
 import argonaut._, Argonaut._
